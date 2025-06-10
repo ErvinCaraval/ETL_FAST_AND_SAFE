@@ -1,0 +1,9 @@
+drop_tables: |
+  DROP TABLE IF EXISTS fact_novedades_clustering CASCADE;
+  DROP TABLE IF EXISTS fact_novedades CASCADE;
+  DROP TABLE IF EXISTS fact_mensajeria_cliente_snapshot CASCADE;
+  DROP TABLE IF EXISTS fact_mensajeria_cliente_diaria CASCADE;
+  DROP TABLE IF EXISTS dim_tiempo CASCADE;
+  DROP TABLE IF EXISTS dim_sede CASCADE;
+  DROP TABLE IF EXISTS dim_mensajero CASCADE;
+  DROP TABLE IF EXISTS dim_cliente CASCADE;
