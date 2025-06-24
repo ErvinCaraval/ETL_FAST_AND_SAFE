@@ -123,6 +123,13 @@ fact_novedades: |
       REFERENCES dim_sede("SedeKey");
 
 
+  -- 1) Agregar la columna autoincremental
+  ALTER TABLE fact_novedades
+    ADD COLUMN "NovedadKey" SERIAL;
+
+  -- 2) Definirla como llave primaria
+  ALTER TABLE fact_novedades
+    ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
 
 
 
