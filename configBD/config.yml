@@ -1,0 +1,15 @@
+mensajeria:
+  driver: postgresql
+  host: localhost
+  port: 5432
+  user: postgres
+  password: root
+  db: mensajeria
+
+bodega:
+  driver: postgresql+psycopg2
+  host: proyectobodega.postgres.database.azure.com
+  port: 5432
+  user: adminbodega
+  password: Goddess9039
+  db: proyectobodega
