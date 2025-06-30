@@ -1,4 +1,4 @@
-Aquí tienes el archivo completo listo para copiar y pegar:
+
 
 ```markdown
 # ETL de Mensajería - Carga de Hechos y Dimensiones
@@ -105,5 +105,3 @@ Este script:
 - Verifica que los archivos `.ipynb` estén en las rutas correctas (`mensajeria/dimensiones/` y `mensajeria/hechos/`)
 - Si PostgreSQL requiere SSL, el `sslmode=require` está configurado automáticamente en el script
 ```
-
-Puedes copiar todo este contenido directamente y pegarlo en un nuevo archivo llamado `README.md` en tu proyecto. El formato Markdown se mantendrá correctamente para su visualización en GitHub u otras plataformas.
