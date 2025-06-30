@@ -57,7 +57,7 @@ En PowerShell (Windows):
 .\venv\Scripts\Activate.ps1
 ```
 
-## 📦 Instalar dependencias
+## 📦 Instalar dependenciass
 
 Asegúrate de tener el archivo `requirements.txt` en la raíz del proyecto con el siguiente contenido:
 
