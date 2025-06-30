@@ -108,10 +108,11 @@ def main():
         os.path.join("mensajeria", "dimensiones", "dm_tiempo.ipynb"),
         os.path.join("mensajeria", "dimensiones", "dm_mensajero.ipynb"),
         # Si en el futuro quieres incluir hechos, descomenta y ajusta estas líneas:
-        # os.path.join("mensajeria", "hechos", "hecho_fact_mensajeria_cliente_diaria.ipynb"),
-        # os.path.join("mensajeria", "hechos", "hecho_mensajeria_cliente_snapshot.ipynb"),
-        # os.path.join("mensajeria", "hechos", "hecho_novedad.ipynb"),
-        # os.path.join("mensajeria", "hechos", "hecho_novedad_clustering.ipynb")
+         
+         os.path.join("mensajeria", "hechos", "hecho_novedades.ipynb"),
+         #os.path.join("mensajeria", "hechos", "hecho_novedades_clustering.ipynb"),
+         os.path.join("mensajeria", "hechos", "hecho_servicios.ipynb"),
+         #os.path.join("mensajeria", "hechos", "hecho_novedades_clustering.ipynb")
     ]
 
     data_changed = check_data_changes()
