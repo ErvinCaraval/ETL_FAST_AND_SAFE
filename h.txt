@@ -1,4 +1,5 @@
-# Versión mejorada 
+# Versión mejorada del archivo s.yml con manejo robusto de duplicados
+
 setup_cleanup: |
   -- 1. Limpieza inicial - Eliminar constraints existentes
   ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS pk_fact_servicios;

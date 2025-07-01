@@ -104,4 +104,135 @@ Este script:
 - Asegúrate de que `jupyter` esté instalado correctamente para ejecutar notebooks
 - Verifica que los archivos `.ipynb` estén en las rutas correctas (`mensajeria/dimensiones/` y `mensajeria/hechos/`)
 - Si PostgreSQL requiere SSL, el `sslmode=require` está configurado automáticamente en el script
+
+
+
+
+
+
+
+
+# Explicación de los Archivos Modificados
+
+## 📜 sqlscripts.yml
+
+Este archivo YAML contiene scripts SQL mejorados para la gestión de la base de datos del Data Warehouse. Su estructura y propósito son:
+
+### 1. **setup_cleanup**
+- **Propósito**: Preparación inicial de la base de datos.
+- **Contenido**:
+  - Elimina constraints existentes (PKs y FKs) de las tablas de hechos para evitar conflictos.
+  - Corrige tipos de datos clave (como BIGINT) para garantizar compatibilidad.
+  - Maneja casos donde las columnas pueden tener valores nulos durante la transformación.
+
+### 2. **dimensions_pk**
+- **Propósito**: Establece las llaves primarias en las tablas de dimensiones.
+- **Características**:
+  - Añade constraints PRIMARY KEY a `dim_cliente`, `dim_mensajero`, `dim_sede` y `dim_tiempo`.
+  - No modifica la estructura existente de las dimensiones.
+
+### 3. **facts_pk**
+- **Propósito**: Estrategia mejorada para PKs en tablas de hechos.
+- **Innovaciones**:
+  - Crea columnas artificiales (`servicio_id`, `NovedadKey`) como SERIAL para PKs robustas.
+  - Índices únicos para controlar duplicados naturales (`idx_servicio_unico`).
+  - Comentarios descriptivos para documentación automática.
+
+### 4. **facts_fk_servicios/facts_fk_novedades**
+- **Propósito**: Define las relaciones entre hechos y dimensiones.
+- **Detalles**:
+  - Constraints FOREIGN KEY que vinculan `fact_servicios` y `fact_novedades` con las dimensiones.
+  - Referencias a `tiempo_key`, `ClienteKey`, `SedeKey`, etc.
+
+### 5. **etl_strategy**
+- **Propósito**: Lógica avanzada para el proceso ETL.
+- **Componentes clave**:
+  - Tabla de staging (`stg_servicios`) con columna `accion` para control de cambios.
+  - Función `carga_servicios()` para carga incremental con detección de duplicados.
+  - Función `limpiar_duplicados_servicios()` para limpieza de registros redundantes.
+
+---
+
+## 🐍 main.py
+
+Script principal con mejoras significativas:
+
+### 1. **Manejo de conexiones**
+- **Nuevo**: Conexiones flexibles con soporte SSL condicional (`require_ssl`).
+- **Resiliencia**: Reintenta sin SSL si falla la conexión segura.
+
+### 2. **Funciones clave**
+- **`run_notebook()`**: Ejecuta notebooks usando `nbconvert` con el mismo intérprete de Python.
+- **`check_data_changes()`** (placeholder): Lógica para detectar cambios en los datos fuente.
+- **`clean_etl_tables()`**: Limpieza segura de tablas usando transacciones.
+
+### 3. **Flujo mejorado**
+1. **Pre-ETL**: Verifica estado de la BD y datos.
+2. **Ejecución**: Procesa notebooks en orden (dimensiones → hechos).
+3. **Post-ETL**: Ejecuta scripts SQL de `sqlscripts.yml` con manejo de errores por sección.
+
+### 4. **Manejo de errores**
+- Rollback automático en fallos.
+- Continuación tras errores en notebooks individuales.
+
+---
+
+## 📊 hecho_servicios.ipynb
+
+Notebook especializado en la tabla de hechos de servicios:
+
+### Proceso ETL
+1. **Extracción**: 
+   - Datos de `mensajeria_servicio`, `mensajeria_origenservicio`, etc.
+   - Dimensiones desde el DW (`dim_cliente`, `dim_sede`).
+
+2. **Transformación**:
+   - **Tiempos**: Calcula duraciones entre fases (asignación, recogida, entrega).
+   - **Eficiencia**: Métrica basada en tiempo promedio por mensajero.
+   - **Prioridades**: Mapeo de valores como `Alta: En una Hora` a minutos.
+
+3. **Carga**:
+   - Subconjunto de 5,000 registros a `fact_servicios`.
+   - Consultas analíticas predefinidas (ej: eficiencia por mensajero).
+
+### Validaciones
+- Verificación de nulos en timestamps.
+- Imputación de medianas para duraciones faltantes.
+
+---
+
+## ⚠️ hecho_novedades.ipynb
+
+Notebook para hechos de novedades:
+
+### Flujo clave
+1. **Enriquecimiento**:
+   - Merge con `dim_tiempo` usando `fecha_novedad`.
+   - Clasificación de gravedad (`alta`/`baja`) según `tipo_novedad_id`.
+
+2. **Lógica de resolución**:
+   - Asigna soluciones automáticas basadas en gravedad.
+   - Calcula `CostoAdicional` según año y salario del mensajero.
+
+3. **Manejo temporal**:
+   - Detecta casos especiales (ej: "fecha entrada y salida son nulas").
+   - Conversión robusta a `timedelta`.
+
+### Output
+- Tabla `fact_novedades` con métricas como `ContadorNovedad`.
+
+---
+
+## Impacto Conjunto
+
+Estos cambios proporcionan:
+✔️ **Mayor robustez**: Manejo de errores y duplicados.  
+✔️ **Documentación embebida**: Comentarios en SQL y YAML.  
+✔️ **Flexibilidad**: Conexiones con/sin SSL.  
+✔️ **Escalabilidad**: Carga incremental vía funciones PL/pgSQL.
+
+
+
 ```
+
+  
