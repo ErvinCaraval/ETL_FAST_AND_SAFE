@@ -14,10 +14,3 @@ bodega:
   password: Goddess9039
   db: proyectobodega
 
-#bodega:
-#  driver: postgresql+psycopg2
-#  host: localhost
-#  port: 5432
-#  user: postgres
-#  password: Ec94
-#  db: proyectob
