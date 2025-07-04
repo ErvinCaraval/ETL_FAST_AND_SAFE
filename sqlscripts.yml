@@ -1,191 +1,122 @@
-# dim_fecha:
-#     ALTER TABLE dim_fecha ADD CONSTRAINT pk_fecha_id PRIMARY KEY (key_dim_fecha);
+# Configuración de scripts SQL para Data Warehouse - Versión sin stg_servicios
 
-# dim_cliente:
-#     ALTER TABLE dim_cliente ADD CONSTRAINT pk_cliente_id PRIMARY KEY (key_dim_cliente);
+setup_cleanup: |
+  -- 1. Limpieza inicial - Eliminar constraints existentes
+  ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS pk_fact_servicios;
+  ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS fk_fact_servicios_tiempo;
+  ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS fk_fact_servicios_cliente;
+  ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS fk_fact_servicios_sede_origen;
+  ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS fk_fact_servicios_sede_destino;
+  ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS fk_fact_servicios_mensajero;
 
-# dim_mensajero:
-#     ALTER TABLE dim_mensajero ADD CONSTRAINT pk_mensajero_id PRIMARY KEY (key_dim_mensajero);
+  ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS pk_fact_novedades;
+  ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_tiempo;
+  ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_mensajero;
+  ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_cliente;
+  ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_sede;
 
-# dim_sede:
-#     ALTER TABLE dim_sede ADD CONSTRAINT pk_sede_id PRIMARY KEY (key_dim_sede);
+  -- 2. Corregir tipos de datos manteniendo la compatibilidad
+  ALTER TABLE dim_tiempo ALTER COLUMN "tiempo_key" TYPE BIGINT USING EXTRACT(EPOCH FROM "tiempo_key")::BIGINT;
+  ALTER TABLE fact_servicios ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
 
-# dim_tiempo:
-#     ALTER TABLE dim_tiempo ADD CONSTRAINT pk_tiempo_id PRIMARY KEY (Tiempo_id);
+  ALTER TABLE fact_servicios ALTER COLUMN "SedeOrigenKey" TYPE BIGINT USING CASE WHEN "SedeOrigenKey" IS NOT NULL THEN ROUND("SedeOrigenKey")::BIGINT ELSE NULL END;
+  ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING CASE WHEN "SedeDestinoKey" IS NOT NULL THEN ROUND("SedeDestinoKey")::BIGINT ELSE NULL END;
+  ALTER TABLE fact_servicios ALTER COLUMN "MensajeroKey" TYPE BIGINT USING CASE WHEN "MensajeroKey" IS NOT NULL THEN ROUND("MensajeroKey")::BIGINT ELSE NULL END;
 
-dim_cliente:
-  ALTER TABLE dim_cliente
-    ADD CONSTRAINT pk_cliente PRIMARY KEY ("ClienteKey");
+  ALTER TABLE fact_novedades ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
+  ALTER TABLE fact_novedades ALTER COLUMN "SedeKey" TYPE BIGINT USING CASE WHEN "SedeKey" IS NOT NULL THEN ROUND("SedeKey")::BIGINT ELSE NULL END;
 
+dimensions_pk: |
+  -- 3. PKs en dimensiones
+  ALTER TABLE dim_cliente ADD CONSTRAINT pk_cliente PRIMARY KEY ("ClienteKey");
+  ALTER TABLE dim_mensajero ADD CONSTRAINT pk_mensajero PRIMARY KEY ("MensajeroKey");
+  ALTER TABLE dim_sede ADD CONSTRAINT pk_sede PRIMARY KEY ("SedeKey");
+  ALTER TABLE dim_tiempo ADD CONSTRAINT pk_tiempo PRIMARY KEY ("tiempo_key");
 
-dim_mensajero:
-  ALTER TABLE dim_mensajero
-    ADD CONSTRAINT pk_mensajero PRIMARY KEY ("MensajeroKey");
+facts_pk: |
+  -- 4. Nueva estrategia para PKs en hechos con manejo de duplicados
+  DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                  WHERE table_name = 'fact_servicios' AND column_name = 'servicio_id') THEN
+      ALTER TABLE fact_servicios ADD COLUMN servicio_id SERIAL;
+      UPDATE fact_servicios SET servicio_id = nextval(pg_get_serial_sequence('fact_servicios', 'servicio_id'));
+    END IF;
+  END $$;
 
-dim_sede:
-  ALTER TABLE dim_sede
-    ADD CONSTRAINT pk_sede PRIMARY KEY ("SedeKey");
-
-dim_tiempo:
-  ALTER TABLE dim_tiempo
-    ADD CONSTRAINT pk_tiempo PRIMARY KEY ("tiempo_key");
-
-
-
-
-
-
-
-# Hecho: Fact_Servicios
-fact_servicios: |
   ALTER TABLE fact_servicios
-    ADD CONSTRAINT pk_fact_servicios PRIMARY KEY ("ServicioKey");
+    ADD CONSTRAINT pk_fact_servicios PRIMARY KEY (servicio_id);
+  COMMENT ON CONSTRAINT pk_fact_servicios ON fact_servicios IS 'Llave primaria artificial para servicios (permite duplicados en campos naturales)';
 
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_servicio_unico 
+    ON fact_servicios ("ServicioKey", "TiempoKey", "ClienteKey", "SedeOrigenKey", "SedeDestinoKey");
+  COMMENT ON INDEX idx_servicio_unico IS 'Índice para controlar registros realmente duplicados';
+
+  DO $$
+  BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                  WHERE table_name = 'fact_novedades' AND column_name = 'NovedadKey') THEN
+      ALTER TABLE fact_novedades ADD COLUMN "NovedadKey" SERIAL;
+    END IF;
+  END $$;
+
+  ALTER TABLE fact_novedades
+    ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
+
+facts_fk_servicios: |
+  -- 5. FKs para fact_servicios
   ALTER TABLE fact_servicios
     ADD CONSTRAINT fk_fact_servicios_tiempo FOREIGN KEY ("TiempoKey")
-      REFERENCES dim_tiempo("tiempo_key");
+    REFERENCES dim_tiempo("tiempo_key");
 
   ALTER TABLE fact_servicios
     ADD CONSTRAINT fk_fact_servicios_cliente FOREIGN KEY ("ClienteKey")
-      REFERENCES dim_cliente("ClienteKey");
+    REFERENCES dim_cliente("ClienteKey");
 
   ALTER TABLE fact_servicios
     ADD CONSTRAINT fk_fact_servicios_sede_origen FOREIGN KEY ("SedeOrigenKey")
-      REFERENCES dim_sede("SedeKey");
+    REFERENCES dim_sede("SedeKey");
 
   ALTER TABLE fact_servicios
     ADD CONSTRAINT fk_fact_servicios_sede_destino FOREIGN KEY ("SedeDestinoKey")
-      REFERENCES dim_sede("SedeKey");
+    REFERENCES dim_sede("SedeKey");
 
   ALTER TABLE fact_servicios
     ADD CONSTRAINT fk_fact_servicios_mensajero FOREIGN KEY ("MensajeroKey")
-      REFERENCES dim_mensajero("MensajeroKey");
+    REFERENCES dim_mensajero("MensajeroKey");
 
-# Hecho: Cluster de novedades
-fact_novedades_clustering: |
-  ALTER TABLE fact_novedades_clustering
-    ADD CONSTRAINT pk_fact_novedades_clustering PRIMARY KEY ("TiempoKey");
-
-  ALTER TABLE fact_novedades_clustering
-    ADD CONSTRAINT fk_fnclust_tiempo FOREIGN KEY ("TiempoKey")
-      REFERENCES dim_tiempo("tiempo_key");
-
-# Hecho: Cluster de servicios
-fact_servicios_clustering: |
-  ALTER TABLE fact_servicios_clustering
-    ADD CONSTRAINT pk_fact_servicios_clustering PRIMARY KEY ("TiempoKey");
-
-  ALTER TABLE fact_servicios_clustering
-    ADD CONSTRAINT fk_fsclust_tiempo FOREIGN KEY ("TiempoKey")
-      REFERENCES dim_tiempo("tiempo_key");
-
-
-
-
-# Hecho: Clustering de Novedades
-fact_novedades_clustering: |
-  -- PK sobre TiempoKey (una fila por fecha)
-  ALTER TABLE fact_novedades_clustering
-    ADD CONSTRAINT pk_fnclust PRIMARY KEY ("TiempoKey");
-
-  -- FK a la dimensión tiempo
-  ALTER TABLE fact_novedades_clustering
-    ADD CONSTRAINT fk_fnclust_tiempo FOREIGN KEY ("TiempoKey")
-      REFERENCES dim_tiempo("tiempo_key");
-
-
-
-
-# Hecho: Novedades
-fact_novedades: |
-  -- PK sobre NovedadKey (autoincremental)
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
-
-  -- FK a la dimensión tiempo
+facts_fk_novedades: |
+  -- 6. FKs para fact_novedades
   ALTER TABLE fact_novedades
     ADD CONSTRAINT fk_fn_tiempo FOREIGN KEY ("TiempoKey")
-      REFERENCES dim_tiempo("tiempo_key");
+    REFERENCES dim_tiempo("tiempo_key");
 
-  -- FK a la dimensión mensajero
   ALTER TABLE fact_novedades
     ADD CONSTRAINT fk_fn_mensajero FOREIGN KEY ("MensajeroKey")
-      REFERENCES dim_mensajero("MensajeroKey");
+    REFERENCES dim_mensajero("MensajeroKey");
 
-  -- FK a la dimensión cliente
   ALTER TABLE fact_novedades
     ADD CONSTRAINT fk_fn_cliente FOREIGN KEY ("ClienteKey")
-      REFERENCES dim_cliente("ClienteKey");
+    REFERENCES dim_cliente("ClienteKey");
 
-  -- FK a la dimensión sede (única sede asociada a la novedad)
   ALTER TABLE fact_novedades
     ADD CONSTRAINT fk_fn_sede FOREIGN KEY ("SedeKey")
-      REFERENCES dim_sede("SedeKey");
+    REFERENCES dim_sede("SedeKey");
 
+etl_strategy: |
+  -- 7. Estrategia ETL mejorada para manejo de duplicados
 
-  -- 1) Agregar la columna autoincremental
-  ALTER TABLE fact_novedades
-    ADD COLUMN "NovedadKey" SERIAL;
-
-  -- 2) Definirla como llave primaria
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
-
-
-
-
-# Hecho: Novedades
-# fact_novedades: |
-#   -- PK sobre NovedadKey
-#   ALTER TABLE fact_novedades
-#     ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
-
-#   -- FK a tiempo de reporte
-#   ALTER TABLE fact_novedades
-#     ADD CONSTRAINT fk_fn_tiempo FOREIGN KEY ("TiempoKey")
-#       REFERENCES dim_tiempo("tiempo_key");
-
-#   -- FK a mensajero
-#   ALTER TABLE fact_novedades
-#     ADD CONSTRAINT fk_fn_mensajero FOREIGN KEY ("MensajeroKey")
-#       REFERENCES dim_mensajero("MensajeroKey");
-
-#   -- FK a cliente
-#   ALTER TABLE fact_novedades
-#     ADD CONSTRAINT fk_fn_cliente FOREIGN KEY ("ClienteKey")
-#       REFERENCES dim_cliente("ClienteKey");
-
-#   -- FK a sede
-#   ALTER TABLE fact_novedades
-#     ADD CONSTRAINT fk_fn_sede FOREIGN KEY ("SedeKey")
-#       REFERENCES dim_sede("SedeKey");
-
-
-# fact_mensajeria_cliente_diaria:
-#     ALTER TABLE fact_mensajeria_cliente_diaria ADD CONSTRAINT fk_fact_mensajeria_cliente FOREIGN KEY (key_dim_cliente) REFERENCES dim_cliente(key_dim_cliente);
-        
-#     ALTER TABLE fact_mensajeria_cliente_diaria ADD CONSTRAINT fk_fact_mensajeria_fecha FOREIGN KEY (key_dim_fecha) REFERENCES dim_fecha(key_dim_fecha);
-
-# fact_novedades:
-#     ALTER TABLE fact_novedades ADD CONSTRAINT fk_fecha FOREIGN KEY (key_dim_fecha) REFERENCES dim_fecha (key_dim_fecha);
-
-# fact_mensajeria_cliente_snapshot:
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_mensajero FOREIGN KEY (id_mensajero) REFERENCES dim_mensajero (key_dim_mensajero);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_fecha_iniciado  FOREIGN KEY (id_fecha_iniciado) REFERENCES dim_fecha (key_dim_fecha);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_fecha_con_mensajero_asignado FOREIGN KEY (id_fecha_con_mensajero_asignado) REFERENCES dim_fecha (key_dim_fecha);  
-  
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_fecha_recogido_por_mensajero   FOREIGN KEY (id_fecha_recogido_por_mensajero) REFERENCES dim_fecha (key_dim_fecha);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_fecha_entregado_en_destino   FOREIGN KEY (id_fecha_entregado_en_destino) REFERENCES dim_fecha (key_dim_fecha);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_fecha_terminado_completo   FOREIGN KEY (id_fecha_terminado_completo) REFERENCES dim_fecha (key_dim_fecha);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_hora_iniciado  FOREIGN KEY (id_hora_iniciado) REFERENCES dim_tiempo (Tiempo_id);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_hora_con_mensajero_asignado  FOREIGN KEY (id_hora_con_mensajero_asignado) REFERENCES dim_tiempo (Tiempo_id);
-  
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_hora_recogido_por_mensajero  FOREIGN KEY (id_hora_recogido_por_mensajero) REFERENCES dim_tiempo (Tiempo_id);    
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_hora_entregado_en_destino  FOREIGN KEY (id_hora_entregado_en_destino) REFERENCES dim_tiempo (Tiempo_id);
-#     ALTER TABLE fact_mensajeria_cliente_snapshot ADD CONSTRAINT fk_hora_terminado_completo  FOREIGN KEY (id_hora_terminado_completo) REFERENCES dim_tiempo (Tiempo_id);
-
-# fact_novedades_clustering:
-#     ALTER TABLE fact_novedades_clustering ADD CONSTRAINT fk_fact_novedades_fecha FOREIGN KEY (key_dim_fecha) REFERENCES dim_fecha (key_dim_fecha);
-
-
-# 
+  -- Función para identificar y limpiar duplicados problemáticos
+  CREATE OR REPLACE FUNCTION limpiar_duplicados_servicios() RETURNS void AS $$
+  BEGIN
+    DELETE FROM fact_servicios
+    WHERE servicio_id IN (
+      SELECT fs2.servicio_id
+      FROM fact_servicios fs1
+      JOIN fact_servicios fs2 ON 
+        fs1."ServicioKey" = fs2."ServicioKey" AND
+        fs1."TiempoKey" = fs2."TiempoKey" AND
+        fs1.servicio_id < fs2.servicio_id
+    );
+  END;
+  $$ LANGUAGE plpgsql;

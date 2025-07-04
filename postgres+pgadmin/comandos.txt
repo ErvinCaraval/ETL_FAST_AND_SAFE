@@ -1,0 +1,2 @@
+docker cp datos-init/copia_bd.sql postgres_db:/copia_bd.sql
+docker exec -it postgres_db psql -U postgres -d proyecto -f /copia_bd.sql

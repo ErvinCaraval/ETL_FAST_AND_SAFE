@@ -1,8 +1,9 @@
 asyncio
 PyYAML
-psycopg2
+psycopg2-binary
 sqlalchemy
-jupyter 
-nbconvert 
+jupyter
+nbconvert
 jupyter_client
 jupyter_core
+pandas
