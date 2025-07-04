@@ -8,6 +8,7 @@ from sqlalchemy import create_engine
 import platform
 import psycopg2
 import pandas as pd
+import runpy  # ← necesario para ejecutar scripts .py
 
 # Establecer la política de bucle de eventos para Windows
 if platform.system() == "Windows":
@@ -21,12 +22,9 @@ with open('./configBD/config.yml', 'r', encoding='utf-8') as f:
     config_etl = config['bodega']
 
 def get_db_connection(require_ssl=False):
-    """
-    Función mejorada para manejar conexiones con opción SSL flexible
-    """
     ssl_mode = 'require' if require_ssl else 'prefer'
     try:
-        conn = psycopg2.connect(
+        return psycopg2.connect(
             dbname=config_etl['db'],
             user=config_etl['user'],
             password=config_etl['password'],
@@ -34,7 +32,6 @@ def get_db_connection(require_ssl=False):
             port=config_etl['port'],
             sslmode=ssl_mode
         )
-        return conn
     except psycopg2.OperationalError as e:
         if "SSL" in str(e):
             print("Advertencia: Fallo en conexión SSL, intentando sin SSL...")
@@ -49,9 +46,6 @@ def get_db_connection(require_ssl=False):
         raise
 
 def get_sqlalchemy_engine(require_ssl=False):
-    """
-    Función para crear engine de SQLAlchemy con opción SSL flexible
-    """
     ssl_param = 'require' if require_ssl else 'prefer'
     url_etl = (
         f"{config_etl['driver']}://{config_etl['user']}:{config_etl['password']}@"
@@ -59,45 +53,32 @@ def get_sqlalchemy_engine(require_ssl=False):
     )
     return create_engine(url_etl)
 
-def run_notebook(notebook_path):
-    """
-    Ejecuta un notebook de Jupyter usando el mismo intérprete (sys.executable).
-    """
-    print(f"Running notebook: {notebook_path}")
-    run(
-        [
-            sys.executable,
-            "-m", "nbconvert",
-            "--to", "notebook",
-            "--execute",
-            "--inplace",
-            "--clear-output",
-            notebook_path
-        ],
-        check=True
-    )
+def run_script_or_notebook(path):
+    print(f"🟡 Ejecutando: {path}")
+    try:
+        if path.endswith(".ipynb"):
+            run([
+                sys.executable, "-m", "nbconvert",
+                "--to", "notebook",
+                "--execute",
+                "--inplace",
+                "--clear-output",
+                path
+            ], check=True)
+        elif path.endswith(".py"):
+            runpy.run_path(path, run_name="__main__")
+        else:
+            print(f"⚠️ Tipo de archivo no soportado: {path}")
+    except Exception as e:
+        print(f"❌ Error ejecutando {path}: {e}")
 
 def check_data_changes():
-    """
-    Verifica si hay cambios en los datos (dimensiones y hechos).
-    Retorna True si debe ejecutar nuevamente los notebooks; False en caso contrario.
-    """
-    # Implementa aquí la lógica real que compare timestamps, hashes, etc.
-    return True  # Por defecto siempre ejecuta
+    return True  # Puedes implementar lógica real aquí
 
 def check_if_db_deleted():
-    """
-    Verifica si la base de datos (dimensiones y hechos) ha sido eliminada.
-    Retorna True si la BD fue borrada y hay que recrear desde cero; False en caso contrario.
-    """
-    # Implementa la lógica adecuada para tu caso.
-    return False
+    return False  # Puedes implementar lógica real aquí
 
 def clean_etl_tables():
-    """
-    Se conecta a la base ETL y ejecuta las sentencias de borrado definidas en 'sqlscripts2.yml'.
-    Usa la nueva función de conexión flexible.
-    """
     conn = None
     cur = None
     try:
@@ -110,7 +91,7 @@ def clean_etl_tables():
                 cur.execute(drop_tables_query)
         conn.commit()
     except Exception as e:
-        print(f"Error al limpiar las tablas: {e}")
+        print(f"❌ Error al limpiar las tablas: {e}")
     finally:
         if cur:
             cur.close()
@@ -118,9 +99,6 @@ def clean_etl_tables():
             conn.close()
 
 def execute_sql_scripts():
-    """
-    Función mejorada para ejecutar los scripts SQL finales con manejo de errores
-    """
     conn = None
     cur = None
     try:
@@ -130,14 +108,43 @@ def execute_sql_scripts():
             sql = yaml.safe_load(f)
             for key, val in sql.items():
                 try:
-                    print(f"Ejecutando: {key}")
+                    print(f"🟢 Ejecutando script: {key}")
                     cur.execute(val)
                     conn.commit()
                 except Exception as e:
-                    print(f"Error al ejecutar {key}: {e}")
+                    print(f"❌ Error al ejecutar {key}: {e}")
                     conn.rollback()
     except Exception as e:
-        print(f"Error de conexión al ejecutar scripts SQL: {e}")
+        print(f"❌ Error de conexión al ejecutar scripts SQL: {e}")
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
+
+def drop_all_tables_if_exist():
+    print("🔍 Verificando existencia de tablas en la base de datos de bodega...")
+    conn = None
+    cur = None
+    try:
+        conn = get_db_connection(require_ssl=False)
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT tablename 
+            FROM pg_tables 
+            WHERE schemaname = 'public';
+        """)
+        tables = cur.fetchall()
+        if tables:
+            print(f"🗑 Eliminando {len(tables)} tablas existentes en la base de datos...")
+            for table in tables:
+                cur.execute(f'DROP TABLE IF EXISTS "{table[0]}" CASCADE;')
+            conn.commit()
+            print("✅ Todas las tablas fueron eliminadas de la base de datos.")
+        else:
+            print("✅ No se encontraron tablas existentes. Continuando con ETL...")
+    except Exception as e:
+        print(f"❌ Error al eliminar tablas existentes: {e}")
     finally:
         if cur:
             cur.close()
@@ -145,46 +152,52 @@ def execute_sql_scripts():
             conn.close()
 
 def main():
-    # Inicializar motor de SQLAlchemy (para notebooks que lo necesiten)
     etl_engine = get_sqlalchemy_engine(require_ssl=False)
-    
-    print("Iniciando proceso ETL...")
+
+    # 🔁 Eliminar todas las tablas si existen en la base de datos de bode
+    drop_all_tables_if_exist()
+
+    print("🚀 Iniciando proceso ETL optimizado...")
     clean_etl_tables()
 
-    # Rutas a los notebooks que se deben ejecutar
-    notebooks = [
+    # 1. Ejecutar notebooks de dimensiones y hechos
+    scripts_etl = [
         os.path.join("mensajeria", "dimensiones", "dm_cliente.ipynb"),
         os.path.join("mensajeria", "dimensiones", "dm_sede.ipynb"),
         os.path.join("mensajeria", "dimensiones", "dm_tiempo.ipynb"),
         os.path.join("mensajeria", "dimensiones", "dm_mensajero.ipynb"),
-        os.path.join("mensajeria", "hechos", "hecho_novedades.ipynb"),
         os.path.join("mensajeria", "hechos", "hecho_servicios.ipynb"),
+        os.path.join("mensajeria", "hechos", "hecho_novedades.ipynb"),
     ]
 
     data_changed = check_data_changes()
     db_deleted = check_if_db_deleted()
 
     if not data_changed and not db_deleted:
-        print("Las dimensiones y hechos ya están creados y sin cambios.")
+        print("✔️ Sin cambios detectados. Proceso ETL no requerido.")
         return
 
-    # Ejecutar cada notebook
-    for notebook in notebooks:
-        if os.path.exists(notebook):
-            print(f"\nProcesando notebook: {notebook}")
-            try:
-                run_notebook(notebook)
-                print(f"Notebook {notebook} completado con éxito")
-            except Exception as e:
-                print(f"Error al ejecutar el notebook {notebook}: {e}")
-                # Continuar con el siguiente notebook en lugar de fallar
+    for script in scripts_etl:
+        if os.path.exists(script):
+            run_script_or_notebook(script)
+            print(f"✅ Finalizado: {script}")
         else:
-            print(f"\nAdvertencia: Notebook {notebook} no encontrado")
+            print(f"⚠️ Archivo no encontrado: {script}")
 
-    # Ejecutar scripts SQL finales
-    print("\nEjecutando scripts SQL finales...")
+    # 2. Ejecutar scripts SQL después de cargar hechos y dimensiones
+    print("\n🧾 Ejecutando scripts SQL finales...")
     execute_sql_scripts()
-    print("Proceso ETL completado")
+
+    # 3. Ejecutar notebook de DataMart
+    datamart_script = os.path.join("mensajeria", "datamart", "datamart_etl_servicios.ipynb")
+    if os.path.exists(datamart_script):
+        run_script_or_notebook(datamart_script)
+        print(f"✅ Finalizado: {datamart_script}")
+    else:
+        print(f"⚠️ Archivo no encontrado: {datamart_script}")
+
+    print("✅ Proceso ETL completado con éxito.")
+
 
 if __name__ == "__main__":
     main()

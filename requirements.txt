@@ -1,6 +1,6 @@
 asyncio
 PyYAML
-psycopg2
+psycopg2-binary
 sqlalchemy
 jupyter
 nbconvert

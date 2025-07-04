@@ -1,4 +1,5 @@
-# Versión mejorada 
+# Configuración de scripts SQL para Data Warehouse - Versión sin stg_servicios
+
 setup_cleanup: |
   -- 1. Limpieza inicial - Eliminar constraints existentes
   ALTER TABLE fact_servicios DROP CONSTRAINT IF EXISTS pk_fact_servicios;
@@ -15,16 +16,18 @@ setup_cleanup: |
   ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_sede;
 
   -- 2. Corregir tipos de datos manteniendo la compatibilidad
-  ALTER TABLE fact_servicios ALTER COLUMN "TiempoKey" TYPE BIGINT USING "TiempoKey"::BIGINT;
-  ALTER TABLE fact_servicios ALTER COLUMN "SedeOrigenKey" TYPE BIGINT USING "SedeOrigenKey"::BIGINT;
-  ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING "SedeDestinoKey"::BIGINT;
-  ALTER TABLE fact_servicios ALTER COLUMN "MensajeroKey" TYPE BIGINT USING "MensajeroKey"::BIGINT;
+  ALTER TABLE dim_tiempo ALTER COLUMN "tiempo_key" TYPE BIGINT USING EXTRACT(EPOCH FROM "tiempo_key")::BIGINT;
+  ALTER TABLE fact_servicios ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
 
-  ALTER TABLE fact_novedades ALTER COLUMN "TiempoKey" TYPE BIGINT USING "TiempoKey"::BIGINT;
-  ALTER TABLE fact_novedades ALTER COLUMN "SedeKey" TYPE BIGINT USING "SedeKey"::BIGINT;
+  ALTER TABLE fact_servicios ALTER COLUMN "SedeOrigenKey" TYPE BIGINT USING CASE WHEN "SedeOrigenKey" IS NOT NULL THEN ROUND("SedeOrigenKey")::BIGINT ELSE NULL END;
+  ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING CASE WHEN "SedeDestinoKey" IS NOT NULL THEN ROUND("SedeDestinoKey")::BIGINT ELSE NULL END;
+  ALTER TABLE fact_servicios ALTER COLUMN "MensajeroKey" TYPE BIGINT USING CASE WHEN "MensajeroKey" IS NOT NULL THEN ROUND("MensajeroKey")::BIGINT ELSE NULL END;
+
+  ALTER TABLE fact_novedades ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
+  ALTER TABLE fact_novedades ALTER COLUMN "SedeKey" TYPE BIGINT USING CASE WHEN "SedeKey" IS NOT NULL THEN ROUND("SedeKey")::BIGINT ELSE NULL END;
 
 dimensions_pk: |
-  -- 3. PKs en dimensiones (sin cambios)
+  -- 3. PKs en dimensiones
   ALTER TABLE dim_cliente ADD CONSTRAINT pk_cliente PRIMARY KEY ("ClienteKey");
   ALTER TABLE dim_mensajero ADD CONSTRAINT pk_mensajero PRIMARY KEY ("MensajeroKey");
   ALTER TABLE dim_sede ADD CONSTRAINT pk_sede PRIMARY KEY ("SedeKey");
@@ -32,8 +35,6 @@ dimensions_pk: |
 
 facts_pk: |
   -- 4. Nueva estrategia para PKs en hechos con manejo de duplicados
-  
-  -- Primero añadir columna de identificación única si no existe
   DO $$
   BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
@@ -43,17 +44,14 @@ facts_pk: |
     END IF;
   END $$;
 
-  -- Crear PK usando el ID único artificial
   ALTER TABLE fact_servicios
     ADD CONSTRAINT pk_fact_servicios PRIMARY KEY (servicio_id);
   COMMENT ON CONSTRAINT pk_fact_servicios ON fact_servicios IS 'Llave primaria artificial para servicios (permite duplicados en campos naturales)';
 
-  -- Crear índice único alternativo para control de duplicados
   CREATE UNIQUE INDEX IF NOT EXISTS idx_servicio_unico 
     ON fact_servicios ("ServicioKey", "TiempoKey", "ClienteKey", "SedeOrigenKey", "SedeDestinoKey");
   COMMENT ON INDEX idx_servicio_unico IS 'Índice para controlar registros realmente duplicados';
 
-  -- Para fact_novedades (similar)
   DO $$
   BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
@@ -66,7 +64,7 @@ facts_pk: |
     ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
 
 facts_fk_servicios: |
-  -- 5. FKs (sin cambios)
+  -- 5. FKs para fact_servicios
   ALTER TABLE fact_servicios
     ADD CONSTRAINT fk_fact_servicios_tiempo FOREIGN KEY ("TiempoKey")
     REFERENCES dim_tiempo("tiempo_key");
@@ -88,7 +86,7 @@ facts_fk_servicios: |
     REFERENCES dim_mensajero("MensajeroKey");
 
 facts_fk_novedades: |
-  -- 6. FKs para novedades (sin cambios)
+  -- 6. FKs para fact_novedades
   ALTER TABLE fact_novedades
     ADD CONSTRAINT fk_fn_tiempo FOREIGN KEY ("TiempoKey")
     REFERENCES dim_tiempo("tiempo_key");
@@ -107,44 +105,10 @@ facts_fk_novedades: |
 
 etl_strategy: |
   -- 7. Estrategia ETL mejorada para manejo de duplicados
-  
-  -- Tabla de staging con columna adicional para control de cambios
-  CREATE TABLE IF NOT EXISTS stg_servicios (
-    LIKE fact_servicios INCLUDING DEFAULTS,
-    accion VARCHAR(10) -- 'INSERT' o 'UPDATE'
-  );
-
-  -- Función para carga incremental con detección de duplicados
-  CREATE OR REPLACE FUNCTION carga_servicios() RETURNS void AS $$
-  BEGIN
-    -- Insertar nuevos registros (sin duplicados exactos)
-    INSERT INTO fact_servicios
-    SELECT s.* FROM stg_servicios s
-    WHERE s.accion = 'INSERT'
-    ON CONFLICT ON CONSTRAINT pk_fact_servicios DO NOTHING;
-    
-    -- Actualizar existentes si es necesario
-    UPDATE fact_servicios f
-    SET 
-      "ClienteKey" = s."ClienteKey",
-      "MensajeroKey" = s."MensajeroKey",
-      "SedeOrigenKey" = s."SedeOrigenKey",
-      "SedeDestinoKey" = s."SedeDestinoKey",
-      -- otros campos...
-      "EstadoServicio" = s."EstadoServicio"
-    FROM stg_servicios s
-    WHERE f."ServicioKey" = s."ServicioKey" 
-      AND f."TiempoKey" = s."TiempoKey"
-      AND s.accion = 'UPDATE';
-    
-    TRUNCATE stg_servicios;
-  END;
-  $$ LANGUAGE plpgsql;
 
   -- Función para identificar y limpiar duplicados problemáticos
   CREATE OR REPLACE FUNCTION limpiar_duplicados_servicios() RETURNS void AS $$
   BEGIN
-    -- Eliminar duplicados exactos manteniendo el primero
     DELETE FROM fact_servicios
     WHERE servicio_id IN (
       SELECT fs2.servicio_id
