@@ -21,10 +21,21 @@ setup_cleanup: |
 
   ALTER TABLE fact_servicios ALTER COLUMN "SedeOrigenKey" TYPE BIGINT USING CASE WHEN "SedeOrigenKey" IS NOT NULL THEN ROUND("SedeOrigenKey")::BIGINT ELSE NULL END;
   ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING CASE WHEN "SedeDestinoKey" IS NOT NULL THEN ROUND("SedeDestinoKey")::BIGINT ELSE NULL END;
-  ALTER TABLE fact_servicios ALTER COLUMN "MensajeroKey" TYPE BIGINT USING CASE WHEN "MensajeroKey" IS NOT NULL THEN ROUND("MensajeroKey")::BIGINT ELSE NULL END;
+
+    -- ✅ Reemplazo de NULL por -1000 en SedeDestinoKey antes de cambiar tipo
+  UPDATE fact_servicios SET "SedeDestinoKey" = -1000 WHERE "SedeDestinoKey" IS NULL;
+  ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING ROUND("SedeDestinoKey")::BIGINT;
+
+
+  -- ✅ Reemplazo de NULL por -1 en MensajeroKey antes de cambiar tipo
+  UPDATE fact_servicios SET "MensajeroKey" = -1 WHERE "MensajeroKey" IS NULL;
+  UPDATE fact_novedades SET "MensajeroKey" = -1 WHERE "MensajeroKey" IS NULL;
+
+  ALTER TABLE fact_servicios ALTER COLUMN "MensajeroKey" TYPE BIGINT USING ROUND("MensajeroKey")::BIGINT;
 
   ALTER TABLE fact_novedades ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
   ALTER TABLE fact_novedades ALTER COLUMN "SedeKey" TYPE BIGINT USING CASE WHEN "SedeKey" IS NOT NULL THEN ROUND("SedeKey")::BIGINT ELSE NULL END;
+  ALTER TABLE fact_novedades ALTER COLUMN "MensajeroKey" TYPE BIGINT USING ROUND("MensajeroKey")::BIGINT;
 
 dimensions_pk: |
   -- 3. PKs en dimensiones
@@ -32,6 +43,16 @@ dimensions_pk: |
   ALTER TABLE dim_mensajero ADD CONSTRAINT pk_mensajero PRIMARY KEY ("MensajeroKey");
   ALTER TABLE dim_sede ADD CONSTRAINT pk_sede PRIMARY KEY ("SedeKey");
   ALTER TABLE dim_tiempo ADD CONSTRAINT pk_tiempo PRIMARY KEY ("tiempo_key");
+
+  -- ✅ Inserción de fila dummy para -1 en dim_mensajero para mantener integridad referencial
+  INSERT INTO dim_mensajero ("MensajeroKey","user_id","first_name","last_name","telefono")
+  VALUES (-1,333,'NONE','NONE','000-0000-000')
+  ON CONFLICT ("MensajeroKey") DO NOTHING;
+
+  -- ✅ Inserción de fila dummy para -1 en dim_sede como 'NO IDENTIFICADA'
+  INSERT INTO dim_sede ("SedeKey", nombre)
+  VALUES (-1000, 'NO IDENTIFICADA')
+  ON CONFLICT ("SedeKey") DO NOTHING;
 
 facts_pk: |
   -- 4. Nueva estrategia para PKs en hechos con manejo de duplicados

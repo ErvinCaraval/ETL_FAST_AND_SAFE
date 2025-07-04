@@ -1,4 +1,4 @@
-------- DIMENCIONES Y HECHOSs 
+------- DIMENCIONES Y HECHOS
 
 SELECT * FROM "dim_tiempo" ;
 
