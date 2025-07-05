@@ -1,4 +1,4 @@
-# Configuración de scripts SQL para Data Warehouse - Versión sin stg_servicios
+# Configuración de scripts SQL para Data Warehouse - Versión mejorada
 
 setup_cleanup: |
   -- 1. Limpieza inicial - Eliminar constraints existentes
@@ -15,24 +15,22 @@ setup_cleanup: |
   ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_cliente;
   ALTER TABLE fact_novedades DROP CONSTRAINT IF EXISTS fk_fn_sede;
 
-  -- 2. Corregir tipos de datos manteniendo la compatibilidad
+  -- 2. Corrección de tipos de datos y normalización
   ALTER TABLE dim_tiempo ALTER COLUMN "tiempo_key" TYPE BIGINT USING EXTRACT(EPOCH FROM "tiempo_key")::BIGINT;
   ALTER TABLE fact_servicios ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
 
-  ALTER TABLE fact_servicios ALTER COLUMN "SedeOrigenKey" TYPE BIGINT USING CASE WHEN "SedeOrigenKey" IS NOT NULL THEN ROUND("SedeOrigenKey")::BIGINT ELSE NULL END;
-  ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING CASE WHEN "SedeDestinoKey" IS NOT NULL THEN ROUND("SedeDestinoKey")::BIGINT ELSE NULL END;
-
-    -- ✅ Reemplazo de NULL por -1000 en SedeDestinoKey antes de cambiar tipo
+  -- ✅ Reemplazo de NULL por -1000 en claves de sede
+  UPDATE fact_servicios SET "SedeOrigenKey" = -1000 WHERE "SedeOrigenKey" IS NULL;
   UPDATE fact_servicios SET "SedeDestinoKey" = -1000 WHERE "SedeDestinoKey" IS NULL;
+  ALTER TABLE fact_servicios ALTER COLUMN "SedeOrigenKey" TYPE BIGINT USING ROUND("SedeOrigenKey")::BIGINT;
   ALTER TABLE fact_servicios ALTER COLUMN "SedeDestinoKey" TYPE BIGINT USING ROUND("SedeDestinoKey")::BIGINT;
 
-
-  -- ✅ Reemplazo de NULL por -1 en MensajeroKey antes de cambiar tipo
+  -- ✅ Reemplazo de NULL por -1 en mensajeros
   UPDATE fact_servicios SET "MensajeroKey" = -1 WHERE "MensajeroKey" IS NULL;
   UPDATE fact_novedades SET "MensajeroKey" = -1 WHERE "MensajeroKey" IS NULL;
-
   ALTER TABLE fact_servicios ALTER COLUMN "MensajeroKey" TYPE BIGINT USING ROUND("MensajeroKey")::BIGINT;
 
+  -- Otros ajustes
   ALTER TABLE fact_novedades ALTER COLUMN "TiempoKey" TYPE BIGINT USING EXTRACT(EPOCH FROM "TiempoKey")::BIGINT;
   ALTER TABLE fact_novedades ALTER COLUMN "SedeKey" TYPE BIGINT USING CASE WHEN "SedeKey" IS NOT NULL THEN ROUND("SedeKey")::BIGINT ELSE NULL END;
   ALTER TABLE fact_novedades ALTER COLUMN "MensajeroKey" TYPE BIGINT USING ROUND("MensajeroKey")::BIGINT;
@@ -44,18 +42,17 @@ dimensions_pk: |
   ALTER TABLE dim_sede ADD CONSTRAINT pk_sede PRIMARY KEY ("SedeKey");
   ALTER TABLE dim_tiempo ADD CONSTRAINT pk_tiempo PRIMARY KEY ("tiempo_key");
 
-  -- ✅ Inserción de fila dummy para -1 en dim_mensajero para mantener integridad referencial
+  -- Fila dummy
   INSERT INTO dim_mensajero ("MensajeroKey","user_id","first_name","last_name","telefono")
   VALUES (-1,333,'NONE','NONE','000-0000-000')
   ON CONFLICT ("MensajeroKey") DO NOTHING;
 
-  -- ✅ Inserción de fila dummy para -1 en dim_sede como 'NO IDENTIFICADA'
   INSERT INTO dim_sede ("SedeKey", nombre)
   VALUES (-1000, 'NO IDENTIFICADA')
   ON CONFLICT ("SedeKey") DO NOTHING;
 
 facts_pk: |
-  -- 4. Nueva estrategia para PKs en hechos con manejo de duplicados
+  -- 4. PKs e índices en tablas de hechos
   DO $$
   BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
@@ -65,13 +62,9 @@ facts_pk: |
     END IF;
   END $$;
 
-  ALTER TABLE fact_servicios
-    ADD CONSTRAINT pk_fact_servicios PRIMARY KEY (servicio_id);
-  COMMENT ON CONSTRAINT pk_fact_servicios ON fact_servicios IS 'Llave primaria artificial para servicios (permite duplicados en campos naturales)';
-
+  ALTER TABLE fact_servicios ADD CONSTRAINT pk_fact_servicios PRIMARY KEY (servicio_id);
   CREATE UNIQUE INDEX IF NOT EXISTS idx_servicio_unico 
     ON fact_servicios ("ServicioKey", "TiempoKey", "ClienteKey", "SedeOrigenKey", "SedeDestinoKey");
-  COMMENT ON INDEX idx_servicio_unico IS 'Índice para controlar registros realmente duplicados';
 
   DO $$
   BEGIN
@@ -81,53 +74,27 @@ facts_pk: |
     END IF;
   END $$;
 
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
+  ALTER TABLE fact_novedades ADD CONSTRAINT pk_fact_novedades PRIMARY KEY ("NovedadKey");
 
 facts_fk_servicios: |
   -- 5. FKs para fact_servicios
-  ALTER TABLE fact_servicios
-    ADD CONSTRAINT fk_fact_servicios_tiempo FOREIGN KEY ("TiempoKey")
-    REFERENCES dim_tiempo("tiempo_key");
-
-  ALTER TABLE fact_servicios
-    ADD CONSTRAINT fk_fact_servicios_cliente FOREIGN KEY ("ClienteKey")
-    REFERENCES dim_cliente("ClienteKey");
-
-  ALTER TABLE fact_servicios
-    ADD CONSTRAINT fk_fact_servicios_sede_origen FOREIGN KEY ("SedeOrigenKey")
-    REFERENCES dim_sede("SedeKey");
-
-  ALTER TABLE fact_servicios
-    ADD CONSTRAINT fk_fact_servicios_sede_destino FOREIGN KEY ("SedeDestinoKey")
-    REFERENCES dim_sede("SedeKey");
-
-  ALTER TABLE fact_servicios
-    ADD CONSTRAINT fk_fact_servicios_mensajero FOREIGN KEY ("MensajeroKey")
-    REFERENCES dim_mensajero("MensajeroKey");
+  ALTER TABLE fact_servicios ADD CONSTRAINT fk_fact_servicios_tiempo FOREIGN KEY ("TiempoKey") REFERENCES dim_tiempo("tiempo_key");
+  ALTER TABLE fact_servicios ADD CONSTRAINT fk_fact_servicios_cliente FOREIGN KEY ("ClienteKey") REFERENCES dim_cliente("ClienteKey");
+  ALTER TABLE fact_servicios ADD CONSTRAINT fk_fact_servicios_sede_origen FOREIGN KEY ("SedeOrigenKey") REFERENCES dim_sede("SedeKey");
+  ALTER TABLE fact_servicios ADD CONSTRAINT fk_fact_servicios_sede_destino FOREIGN KEY ("SedeDestinoKey") REFERENCES dim_sede("SedeKey");
+  ALTER TABLE fact_servicios ADD CONSTRAINT fk_fact_servicios_mensajero FOREIGN KEY ("MensajeroKey") REFERENCES dim_mensajero("MensajeroKey");
 
 facts_fk_novedades: |
   -- 6. FKs para fact_novedades
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT fk_fn_tiempo FOREIGN KEY ("TiempoKey")
-    REFERENCES dim_tiempo("tiempo_key");
-
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT fk_fn_mensajero FOREIGN KEY ("MensajeroKey")
-    REFERENCES dim_mensajero("MensajeroKey");
-
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT fk_fn_cliente FOREIGN KEY ("ClienteKey")
-    REFERENCES dim_cliente("ClienteKey");
-
-  ALTER TABLE fact_novedades
-    ADD CONSTRAINT fk_fn_sede FOREIGN KEY ("SedeKey")
-    REFERENCES dim_sede("SedeKey");
+  ALTER TABLE fact_novedades ADD CONSTRAINT fk_fn_tiempo FOREIGN KEY ("TiempoKey") REFERENCES dim_tiempo("tiempo_key");
+  ALTER TABLE fact_novedades ADD CONSTRAINT fk_fn_mensajero FOREIGN KEY ("MensajeroKey") REFERENCES dim_mensajero("MensajeroKey");
+  ALTER TABLE fact_novedades ADD CONSTRAINT fk_fn_cliente FOREIGN KEY ("ClienteKey") REFERENCES dim_cliente("ClienteKey");
+  ALTER TABLE fact_novedades ADD CONSTRAINT fk_fn_sede FOREIGN KEY ("SedeKey") REFERENCES dim_sede("SedeKey");
 
 etl_strategy: |
-  -- 7. Estrategia ETL mejorada para manejo de duplicados
+  -- 7. Estrategia ETL con limpieza de duplicados completa
 
-  -- Función para identificar y limpiar duplicados problemáticos
+  -- Limpieza de duplicados en fact_servicios
   CREATE OR REPLACE FUNCTION limpiar_duplicados_servicios() RETURNS void AS $$
   BEGIN
     DELETE FROM fact_servicios
@@ -135,9 +102,61 @@ etl_strategy: |
       SELECT fs2.servicio_id
       FROM fact_servicios fs1
       JOIN fact_servicios fs2 ON 
-        fs1."ServicioKey" = fs2."ServicioKey" AND
-        fs1."TiempoKey" = fs2."TiempoKey" AND
-        fs1.servicio_id < fs2.servicio_id
+        fs1."ServicioKey" = fs2."ServicioKey"
+        AND fs1."TiempoKey" = fs2."TiempoKey"
+        AND fs1."ClienteKey" = fs2."ClienteKey"
+        AND fs1."SedeOrigenKey" = fs2."SedeOrigenKey"
+        AND fs1."SedeDestinoKey" = fs2."SedeDestinoKey"
+        AND fs1."MensajeroKey" = fs2."MensajeroKey"
+        AND fs1."TipoServicio" = fs2."TipoServicio"
+        AND fs1."EstadoServicio" = fs2."EstadoServicio"
+        AND fs1."EsFinal" = fs2."EsFinal"
+        AND fs1."Tiempo_Inicio" = fs2."Tiempo_Inicio"
+        AND fs1."Tiempo_Mensajero_Asignado" = fs2."Tiempo_Mensajero_Asignado"
+        AND fs1."Tiempo_Recogido_Origen" = fs2."Tiempo_Recogido_Origen"
+        AND fs1."Tiempo_Entregado_Destino" = fs2."Tiempo_Entregado_Destino"
+        AND fs1."Tiempo_Cerrado" = fs2."Tiempo_Cerrado"
+        AND fs1."Mes" = fs2."Mes"
+        AND fs1."DiaSemana" = fs2."DiaSemana"
+        AND fs1."Año" = fs2."Año"
+        AND fs1."Hora" = fs2."Hora"
+        AND fs1."DiaMes" = fs2."DiaMes"
+        AND fs1."Duracion_Total_Min" = fs2."Duracion_Total_Min"
+        AND fs1."Duracion_Asignacion_Min" = fs2."Duracion_Asignacion_Min"
+        AND fs1."Duracion_Recogida_Min" = fs2."Duracion_Recogida_Min"
+        AND fs1."Duracion_Entrega_Min" = fs2."Duracion_Entrega_Min"
+        AND fs1."Duracion_Cierre_Min" = fs2."Duracion_Cierre_Min"
+        AND fs1."Eficiencia_Mensajero" = fs2."Eficiencia_Mensajero"
+        AND fs1.servicio_id < fs2.servicio_id
     );
   END;
   $$ LANGUAGE plpgsql;
+
+  -- Limpieza de duplicados en fact_novedades (sin cambios)
+  CREATE OR REPLACE FUNCTION limpiar_duplicados_novedades() RETURNS void AS $$
+  BEGIN
+    DELETE FROM fact_novedades
+    WHERE "NovedadKey" IN (
+      SELECT fn2."NovedadKey"
+      FROM fact_novedades fn1
+      JOIN fact_novedades fn2 ON 
+        fn1."TiempoKey" = fn2."TiempoKey"
+        AND fn1."MensajeroKey" = fn2."MensajeroKey"
+        AND fn1."ClienteKey" = fn2."ClienteKey"
+        AND fn1."SedeKey" = fn2."SedeKey"
+        AND fn1."TipoNovedad" = fn2."TipoNovedad"
+        AND fn1."Gravedad" = fn2."Gravedad"
+        AND fn1."Descripcion" = fn2."Descripcion"
+        AND fn1."TiempoReporte" = fn2."TiempoReporte"
+        AND fn1."TiempoResolucion" = fn2."TiempoResolucion"
+        AND fn1."Solucion" = fn2."Solucion"
+        AND fn1."CostoAdicional" = fn2."CostoAdicional"
+        AND fn1."ContadorNovedad" = fn2."ContadorNovedad"
+        AND fn1."NovedadKey" < fn2."NovedadKey"
+    );
+  END;
+  $$ LANGUAGE plpgsql;
+
+  -- Ejecutar limpieza automática al final del ETL
+  SELECT limpiar_duplicados_servicios();
+  SELECT limpiar_duplicados_novedades();
