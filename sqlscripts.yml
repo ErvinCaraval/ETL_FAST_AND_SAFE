@@ -115,17 +115,14 @@ etl_strategy: |
         AND fs1."Tiempo_Mensajero_Asignado" = fs2."Tiempo_Mensajero_Asignado"
         AND fs1."Tiempo_Recogido_Origen" = fs2."Tiempo_Recogido_Origen"
         AND fs1."Tiempo_Entregado_Destino" = fs2."Tiempo_Entregado_Destino"
-        AND fs1."Tiempo_Cerrado" = fs2."Tiempo_Cerrado"
         AND fs1."Mes" = fs2."Mes"
         AND fs1."DiaSemana" = fs2."DiaSemana"
         AND fs1."Año" = fs2."Año"
         AND fs1."Hora" = fs2."Hora"
         AND fs1."DiaMes" = fs2."DiaMes"
-        AND fs1."Duracion_Total_Min" = fs2."Duracion_Total_Min"
         AND fs1."Duracion_Asignacion_Min" = fs2."Duracion_Asignacion_Min"
         AND fs1."Duracion_Recogida_Min" = fs2."Duracion_Recogida_Min"
         AND fs1."Duracion_Entrega_Min" = fs2."Duracion_Entrega_Min"
-        AND fs1."Duracion_Cierre_Min" = fs2."Duracion_Cierre_Min"
         AND fs1."Eficiencia_Mensajero" = fs2."Eficiencia_Mensajero"
         AND fs1.servicio_id < fs2.servicio_id
     );
