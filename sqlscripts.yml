@@ -120,11 +120,7 @@ etl_strategy: |
         AND fs1."Año" = fs2."Año"
         AND fs1."Hora" = fs2."Hora"
         AND fs1."DiaMes" = fs2."DiaMes"
-        AND fs1."Duracion_Asignacion_Min" = fs2."Duracion_Asignacion_Min"
-        AND fs1."Duracion_Recogida_Min" = fs2."Duracion_Recogida_Min"
-        AND fs1."Duracion_Entrega_Min" = fs2."Duracion_Entrega_Min"
-        AND fs1."Eficiencia_Mensajero" = fs2."Eficiencia_Mensajero"
-        AND fs1.servicio_id < fs2.servicio_id
+
     );
   END;
   $$ LANGUAGE plpgsql;
