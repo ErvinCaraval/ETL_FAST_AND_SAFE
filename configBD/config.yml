@@ -8,8 +8,8 @@ mensajeria:
 
 bodega:
   driver: postgresql+psycopg2
-  host: proyectobodega.postgres.database.azure.com
+  host: localhost
   port: 5432
-  user: adminbodega
-  password: Goddess9039
-  db: proyectobodega
+  user: postgres
+  password: Ec94
+  db: proyectob
